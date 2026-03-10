@@ -1,41 +1,57 @@
-from telethon.sessions import MemorySession
-from telethon.crypto import AuthKey
+from telethon.sessions import StringSession
+from datetime import datetime
 import pymongo
 
-class MongoSession(MemorySession):
-    def __init__(self, mongo_uri, session_name):
-        super().__init__()
-        client = pymongo.MongoClient(mongo_uri)
-        db = client.get_default_database()
-        self.col = db['sessions']
-        self.session_name = session_name
-        self._load()
+def load_session(mongo_uri, session_name):
+    """Busca a string de session salva no MongoDB"""
+    client = pymongo.MongoClient(mongo_uri)
+    db = client.get_default_database()
+    col = db['sessions']
+    
+    data = col.find_one({'_id': session_name})
+    if data and data.get('session_string'):
+        print(f"🕒 Último login: {data.get('last_login', 'desconhecido')}")
+        return data['session_string']
+    return None
 
-    def _load(self):
-        data = self.col.find_one({'_id': self.session_name})
-        if data:
-            self._dc_id = data.get('dc_id', 0)
-            self._server_address = data.get('server_address')
-            self._port = data.get('port')
-            if data.get('auth_key'):
-                self._auth_key = AuthKey(bytes.fromhex(data['auth_key']))
+def save_session(mongo_uri, session_name, session_string):
+    """Salva a string de session no MongoDB"""
+    client = pymongo.MongoClient(mongo_uri)
+    db = client.get_default_database()
+    col = db['sessions']
+    
+    now = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    
+    col.update_one(
+        {'_id': session_name},
+        {'$set': {
+            'session_string': session_string,
+            'last_login': now
+        }},
+        upsert=True
+    )
+    print(f"✅ Session salva no MongoDB! [{now}]")
 
-    def set_dc(self, dc_id, server_address, port):
-        super().set_dc(dc_id, server_address, port)
-        self._save()
+def load_last_message_id(mongo_uri, session_name):
+    """Busca o ID da última mensagem clonada"""
+    client = pymongo.MongoClient(mongo_uri)
+    db = client.get_default_database()
+    col = db['cloner_state']
 
-    def set_auth_key(self, auth_key):
-        self._auth_key = auth_key
-        self._save()
+    data = col.find_one({'_id': session_name})
+    if data:
+        return data.get('last_message_id', 0)
+    return 0
 
-    def _save(self):
-        self.col.update_one(
-            {'_id': self.session_name},
-            {'$set': {
-                'dc_id': self._dc_id,
-                'server_address': self._server_address,
-                'port': self._port,
-                'auth_key': self._auth_key.key.hex() if self._auth_key else None
-            }},
-            upsert=True
-        )
+def save_last_message_id(mongo_uri, session_name, message_id):
+    """Salva o ID da última mensagem clonada"""
+    client = pymongo.MongoClient(mongo_uri)
+    db = client.get_default_database()
+    col = db['cloner_state']
+
+    col.update_one(
+        {'_id': session_name},
+        {'$set': {'last_message_id': message_id}},
+        upsert=True
+    )
+    print(f"💾 Último ID salvo: {message_id}")
