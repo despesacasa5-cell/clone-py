@@ -1,13 +1,12 @@
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
-from mongo_session import load_session, save_session, save_pair
+from mongo_session import load_session, save_session
 from scheduler import setup_scheduler
 from dialogs import listar_e_salvar_dialogs
 from api import app
+from contextlib import asynccontextmanager
 import uvicorn
-import threading
-import asyncio
 import os
 
 load_dotenv()
@@ -21,7 +20,10 @@ session_string = load_session(mongo_uri, session_name)
 session = StringSession(session_string) if session_string else StringSession()
 client = TelegramClient(session, api_id, api_hash)
 
-async def main():
+@asynccontextmanager
+async def lifespan(app):
+    # Tudo que roda na inicialização
+    await client.connect()
     await client.start()
     save_session(mongo_uri, session_name, client.session.save())
     print("✅ Conectado ao Telegram!\n")
@@ -32,19 +34,16 @@ async def main():
     scheduler.start()
     print("🚀 Scheduler rodando!\n")
 
-    # Roda o FastAPI em thread separada
-    threading.Thread(
-        target=uvicorn.run,
-        args=(app,),
-        kwargs={"host": "0.0.0.0", "port": 8000},
-        daemon=True
-    ).start()
-    print("🌐 API rodando na porta 8000!\n")
+    yield  # app fica rodando aqui
 
-    await asyncio.Event().wait()
+    # Tudo que roda no encerramento
+    scheduler.shutdown()
+    await client.disconnect()
+    print("🔴 Desconectado.")
 
-async def run():
-    async with client:
-        await main()
+# Registra o lifespan no FastAPI
+app.router.lifespan_context = lifespan
 
-asyncio.run(run())
+if __name__ == "__main__":
+    port = int(os.getenv('PORT', 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
