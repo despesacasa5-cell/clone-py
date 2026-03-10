@@ -2,3 +2,8 @@ telethon
 python-dotenv
 pymongo
 dnspython
+apscheduler
+fastapi
+uvicorn
+python-jose
+passlib
