@@ -9,7 +9,7 @@ async def clonar_grupo(client, pair_name, origem_id, destino_id, mongo_uri):
 
     ultimo_id = load_last_message_id(mongo_uri, pair_name)
 
-    print(f"\n🔁 [{pair_name}] Origem: {origem.title} → Destino: {destino.title}")
+    print(f"\n🔁 [{pair_name}] {origem.title} → {destino.title}")
     print(f"🔖 Buscando mensagens após ID: {ultimo_id}")
 
     copiadas = 0
@@ -20,18 +20,15 @@ async def clonar_grupo(client, pair_name, origem_id, destino_id, mongo_uri):
         try:
             if message.text and not message.media:
                 await client.send_message(destino, message.text)
-                print(f"✅ Texto | ID {message.id}: {message.text[:50]}")
                 copiadas += 1
 
             elif isinstance(message.media, MessageMediaPhoto):
                 await client.send_file(destino, message.media, caption=message.text or '')
-                print(f"🖼️ Foto  | ID {message.id}")
                 copiadas += 1
 
             elif isinstance(message.media, MessageMediaDocument):
                 if 'video' in message.media.document.mime_type:
                     await client.send_file(destino, message.media, caption=message.text or '')
-                    print(f"🎥 Vídeo | ID {message.id}")
                     copiadas += 1
 
             if message.id > maior_id:
@@ -47,6 +44,10 @@ async def clonar_grupo(client, pair_name, origem_id, destino_id, mongo_uri):
     if maior_id > ultimo_id:
         save_last_message_id(mongo_uri, pair_name, maior_id)
 
-    print(f"🏁 [{pair_name}] ✅ Copiadas: {copiadas} | ❌ Erros: {erros}")
-    if copiadas == 0:
-        print(f"ℹ️ [{pair_name}] Nenhuma mensagem nova.")
+    # Retorna resumo
+    return {
+        "copiadas": copiadas,
+        "erros": erros,
+        "ultimo_id_anterior": ultimo_id,
+        "ultimo_id_atual": maior_id
+    }

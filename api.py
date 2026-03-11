@@ -91,3 +91,32 @@ def delete_pair(name: str):
     db = client.get_default_database()
     db['cloner_pairs'].delete_one({'_id': name})
     return {"message": f"Par '{name}' removido!"}
+
+@app.post("/clone/{pair_name}", dependencies=[Depends(verify_token)])
+async def run_clone(pair_name: str):
+    from pymongo import MongoClient
+    from cloner import clonar_grupo
+
+    mongo_uri = os.getenv('MONGO_URI')
+    db = MongoClient(mongo_uri).get_default_database()
+    pair = db['cloner_pairs'].find_one({'_id': pair_name})
+
+    if not pair:
+        raise HTTPException(status_code=404, detail="Par não encontrado")
+
+    resultado = await clonar_grupo(
+        client=client,
+        pair_name=pair['_id'],
+        origem_id=pair['origem_id'],
+        destino_id=pair['destino_id'],
+        mongo_uri=mongo_uri
+    )
+
+    return {
+        "pair": pair_name,
+        "status": "concluído",
+        "copiadas": resultado['copiadas'],
+        "erros": resultado['erros'],
+        "ultimo_id_anterior": resultado['ultimo_id_anterior'],
+        "ultimo_id_atual": resultado['ultimo_id_atual']
+    }
