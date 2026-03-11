@@ -8,6 +8,7 @@ from api import app
 from contextlib import asynccontextmanager
 import uvicorn
 import os
+import state
 
 load_dotenv()
 
@@ -22,22 +23,20 @@ client = TelegramClient(session, api_id, api_hash)
 
 @asynccontextmanager
 async def lifespan(app):
-    # Tudo que roda na inicialização
     await client.connect()
     await client.start()
+    
+    # Salva o client no state para compartilhar
+    state.telegram_client = client
+    
     save_session(mongo_uri, session_name, client.session.save())
     print("✅ Conectado ao Telegram!\n")
 
     await listar_e_salvar_dialogs(client, mongo_uri)
+    print("🚀 Pronto!\n")
 
-    scheduler = setup_scheduler(client, mongo_uri)
-    scheduler.start()
-    print("🚀 Scheduler rodando!\n")
+    yield
 
-    yield  # app fica rodando aqui
-
-    # Tudo que roda no encerramento
-    scheduler.shutdown()
     await client.disconnect()
     print("🔴 Desconectado.")
 

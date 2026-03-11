@@ -4,6 +4,7 @@ from typing import List, Optional
 from mongo_session import save_pair, load_pairs, save_dialogs
 from dotenv import load_dotenv
 import os
+import state
 
 load_dotenv()
 
@@ -92,10 +93,15 @@ def delete_pair(name: str):
     db['cloner_pairs'].delete_one({'_id': name})
     return {"message": f"Par '{name}' removido!"}
 
+
 @app.post("/clone/{pair_name}", dependencies=[Depends(verify_token)])
 async def run_clone(pair_name: str):
     from pymongo import MongoClient
     from cloner import clonar_grupo
+
+    # Usa o client compartilhado
+    if not state.telegram_client:
+        raise HTTPException(status_code=503, detail="Telegram client não está conectado")
 
     mongo_uri = os.getenv('MONGO_URI')
     db = MongoClient(mongo_uri).get_default_database()
@@ -105,7 +111,7 @@ async def run_clone(pair_name: str):
         raise HTTPException(status_code=404, detail="Par não encontrado")
 
     resultado = await clonar_grupo(
-        client=client,
+        client=state.telegram_client,
         pair_name=pair['_id'],
         origem_id=pair['origem_id'],
         destino_id=pair['destino_id'],
