@@ -63,7 +63,10 @@ class PairUpdateModel(BaseModel):
 async def auth_status():
     """Verifica se o Telegram está conectado e autenticado"""
     try:
-        if not state.telegram_client or not state.telegram_client.is_connected():
+        if not state.telegram_client:
+            return {"status": "client não inicializado"}
+
+        if not state.telegram_client.is_connected():
             return {"status": "desconectado"}
 
         me = await state.telegram_client.get_me()
@@ -74,33 +77,47 @@ async def auth_status():
                 "telefone": me.phone
             }
         return {"status": "conectado mas não autenticado"}
+
     except Exception as e:
         return {"status": "erro", "detail": str(e)}
 
 
 @app.post("/auth/send-code", tags=["Auth"], dependencies=[Depends(verify_token)])
 async def send_code(data: PhoneModel):
-    """
-    Envia o código SMS para o telefone informado.
-    Use quando a sessão expirar.
-    """
+    """Envia o código SMS para o telefone informado."""
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
+    mongo_uri = os.getenv('MONGO_URI')
+    api_id    = os.getenv('API_ID')
+    api_hash  = os.getenv('API_HASH')
+
     try:
+        # Se o client não existe ou está None, cria um novo
+        if not state.telegram_client:
+            state.telegram_client = TelegramClient(
+                StringSession(), api_id, api_hash
+            )
+
         if not state.telegram_client.is_connected():
             await state.telegram_client.connect()
 
         result = await state.telegram_client.send_code_request(data.phone)
         state.phone_code_hash = result.phone_code_hash
+
         return {"message": f"✅ Código enviado para {data.phone}!"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/auth/verify", tags=["Auth"], dependencies=[Depends(verify_token)])
 async def verify_code(data: CodeModel):
-    """
-    Verifica o código recebido por SMS e salva a nova sessão.
-    """
+    """Verifica o código recebido por SMS e salva a nova sessão."""
     try:
+        if not state.telegram_client or not state.telegram_client.is_connected():
+            raise HTTPException(status_code=503, detail="Client não conectado, chame /auth/send-code primeiro")
+
         await state.telegram_client.sign_in(
             phone=data.phone,
             code=data.code,
@@ -111,9 +128,9 @@ async def verify_code(data: CodeModel):
         save_session(mongo_uri, 'minha_session', state.telegram_client.session.save())
 
         return {"message": "✅ Login realizado e sessão salva com sucesso!"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ──────────────────────────────────────────
 # DIALOGS
