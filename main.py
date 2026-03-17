@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 import os
 import state
+from keepalive import keepalive
+import asyncio
 
 load_dotenv()
 
@@ -21,28 +23,25 @@ session_string = load_session(mongo_uri, session_name)
 session = StringSession(session_string) if session_string else StringSession()
 client = TelegramClient(session, api_id, api_hash)
 
+
 @asynccontextmanager
 async def lifespan(app):
     await client.connect()
     await client.start()
-    
-    # Salva o client no state para compartilhar
+
     state.telegram_client = client
-    
     save_session(mongo_uri, session_name, client.session.save())
     print("✅ Conectado ao Telegram!\n")
 
     await listar_e_salvar_dialogs(client, mongo_uri)
-    print("🚀 Pronto!\n")
+
+    # Inicia keepalive em background
+    task = asyncio.create_task(keepalive())
+    print("💓 Keepalive iniciado!\n")
 
     yield
 
+    # Cancela o keepalive ao encerrar
+    task.cancel()
     await client.disconnect()
     print("🔴 Desconectado.")
-
-# Registra o lifespan no FastAPI
-app.router.lifespan_context = lifespan
-
-if __name__ == "__main__":
-    port = int(os.getenv('PORT', 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)

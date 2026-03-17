@@ -99,9 +99,13 @@ async def run_clone(pair_name: str):
     from pymongo import MongoClient
     from cloner import clonar_grupo
 
-    # Usa o client compartilhado
     if not state.telegram_client:
-        raise HTTPException(status_code=503, detail="Telegram client não está conectado")
+        raise HTTPException(status_code=503, detail="Telegram client não inicializado")
+
+    # Garante que está conectado antes de clonar
+    if not state.telegram_client.is_connected():
+        print("⚠️ Reconectando antes de clonar...")
+        await state.telegram_client.connect()
 
     mongo_uri = os.getenv('MONGO_URI')
     db = MongoClient(mongo_uri).get_default_database()
