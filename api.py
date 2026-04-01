@@ -55,6 +55,22 @@ class PairUpdateModel(BaseModel):
     horarios: Optional[List[str]] = None
     active: Optional[bool] = None
 
+class AddMembersModel(BaseModel):
+    origem_id: int
+    destino_id: int
+    max_por_chamada: int = 50
+    delay_segundos: int = 30
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "origem_id": -1001234567890,
+                "destino_id": -1009876543210,
+                "max_por_chamada": 50,
+                "delay_segundos": 30
+            }
+        }
+
 # ──────────────────────────────────────────
 # AUTH
 # ──────────────────────────────────────────
@@ -242,6 +258,75 @@ async def run_clone(pair_name: str):
         "ultimo_id_anterior": resultado['ultimo_id_anterior'],
         "ultimo_id_atual": resultado['ultimo_id_atual']
     }
+
+
+# ──────────────────────────────────────────
+# MEMBROS
+# ──────────────────────────────────────────
+
+@app.post("/members/add", tags=["Members"], dependencies=[Depends(verify_token)])
+async def add_members_from_origin(data: AddMembersModel):
+    """
+    Pega membros de um grupo origem e adiciona em um grupo destino
+    com controle de max por chamada e delay entre adições
+    """
+    if not state.telegram_client:
+        raise HTTPException(status_code=503, detail="Telegram client não inicializado")
+
+    if not state.telegram_client.is_connected():
+        await state.telegram_client.connect()
+
+    try:
+        # Buscar participantes do grupo origem
+        origem_entity = await state.telegram_client.get_entity(data.origem_id)
+        participantes = await state.telegram_client.get_participants(origem_entity, limit=data.max_por_chamada)
+        
+        # Filtrar apenas usuários com telefone
+        usuarios_com_telefone = [p for p in participantes if hasattr(p, 'phone') and p.phone]
+        
+        # Adicionar ao grupo destino
+        destino_entity = await state.telegram_client.get_entity(data.destino_id)
+        
+        adicionados = 0
+        erros = 0
+        detalhes_erros = []
+        
+        for usuario in usuarios_com_telefone[:data.max_por_chamada]:
+            try:
+                await state.telegram_client.edit_admin(
+                    destino_entity,
+                    usuario,
+                    is_admin=False
+                )
+                adicionados += 1
+                
+                # Delay entre adições para evitar flood
+                if data.delay_segundos > 0:
+                    import asyncio
+                    await asyncio.sleep(data.delay_segundos)
+                    
+            except Exception as e:
+                erros += 1
+                detalhes_erros.append({
+                    "user_id": usuario.id,
+                    "phone": usuario.phone,
+                    "error": str(e)
+                })
+        
+        return {
+            "status": "concluído",
+            "origem_id": data.origem_id,
+            "destino_id": data.destino_id,
+            "membros_encontrados": len(usuarios_com_telefone),
+            "membros_adicionados": adicionados,
+            "erros": erros,
+            "detalhes_erros": detalhes_erros,
+            "max_por_chamada": data.max_por_chamada,
+            "delay_utilizado": data.delay_segundos
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ──────────────────────────────────────────
